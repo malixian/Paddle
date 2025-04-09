@@ -43,14 +43,22 @@ std::optional<int> GetArchDevice(const common::Target& target) {
 #endif
       },
       [&](common::HygonDCUArchHIP) -> std::optional<int> {
+#ifdef CINN_WITH_HIP
         int device_id =
             BackendAPI::get_backend(common::HygonDCUArchHIP{})->get_device();
         return std::optional<int>{device_id};
+#else
+        return std::nullopt;
+#endif
       },
       [&](common::HygonDCUArchSYCL) -> std::optional<int> {
+#ifdef CINN_WITH_SYCL    
         int device_id =
             BackendAPI::get_backend(common::HygonDCUArchSYCL{})->get_device();
         return std::optional<int>{device_id};
+#else
+        return std::nullopt;
+#endif
       });
 }
 
@@ -71,6 +79,7 @@ void SetArchDevice(const common::Target& target,
 #endif
       },
       [&](common::HygonDCUArchHIP) -> void {
+#ifdef CINN_WITH_HIP
         PADDLE_ENFORCE_EQ(device_id.has_value(),
                           true,
                           ::common::errors::InvalidArgument(
@@ -78,8 +87,10 @@ void SetArchDevice(const common::Target& target,
                               "received std::nullopt."));
         BackendAPI::get_backend(common::HygonDCUArchHIP{})
             ->set_device(device_id.value());
+#endif
       },
       [&](common::HygonDCUArchSYCL) -> void {
+#ifdef CINN_WITH_SYCL
         PADDLE_ENFORCE_EQ(device_id.has_value(),
                           true,
                           ::common::errors::InvalidArgument(
@@ -87,6 +98,7 @@ void SetArchDevice(const common::Target& target,
                               "received std::nullopt."));
         BackendAPI::get_backend(common::HygonDCUArchSYCL{})
             ->set_device(device_id.value());
+#endif
       });
 }
 
