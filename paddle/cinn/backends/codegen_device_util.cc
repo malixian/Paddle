@@ -384,6 +384,15 @@ void detail::CollectBucketStrategyHostFunctionVisitor::ProcessArgs(
                          ir::CallType::Extern,
                          ir::FunctionRef(),
                          0);
+#elif defined(CINN_WITH_SYCL)
+       ir::Expr call_get_value_in_kernel_args =
+           ir::Call::Make(Int(64),
+                          runtime::intrinsic::get_value_in_sycl_kernel_args,
+                          {kernel_args_, ir::Expr(i)},
+                          {},
+                          ir::CallType::Extern,
+                          ir::FunctionRef(),
+                          0); 
 #else
       CINN_NOT_IMPLEMENTED
 #endif

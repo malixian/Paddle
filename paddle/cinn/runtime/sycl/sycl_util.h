@@ -43,11 +43,13 @@ void cinn_call_sycl_kernel(void* kernel_fn,
                            int grid_z,
                            int block_x,
                            int block_y,
-                           int block_z);
+                           int block_z,
+                           int shared_memory_bytes,
+                           void* stream);
 
-void cinn_call_sycl_memset(void* v_args, int num_args, int value, size_t count);
+void cinn_call_sycl_memset(void* v_args, int num_args, int value, size_t count, void* stream = nullptr);
 
-void cinn_call_sycl_memcpy(void* v_args, int num_args, size_t count);
+void cinn_call_sycl_memcpy(void* v_args, int num_args, size_t count, void* stream = nullptr);
 
 #ifdef CINN_WITH_CNNL
 #define CNRT_CALL(func)                                  \
