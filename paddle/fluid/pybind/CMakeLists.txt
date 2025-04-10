@@ -52,7 +52,7 @@ endif()
 
 if(WITH_CINN)
   set(PYBIND_DEPS ${PYBIND_DEPS} pir_transforms cinn_transforms
-                  sub_graph_checker add_cinn_pass)
+                  sub_graph_checker add_cinn_pass autotuner_bindings)
   list(REMOVE_ITEM PYBIND_DEPS imperative_flag)
 endif()
 

@@ -200,6 +200,7 @@ limitations under the License. */
 
 #ifdef PADDLE_WITH_CINN
 #include "paddle/cinn/pybind/bind.h"
+#include "paddle/cinn/pybind/autotuner/bind.h"
 #include "paddle/fluid/pybind/test.h"
 #endif
 
@@ -3589,7 +3590,10 @@ All parameter, weight, gradient are variables in Paddle.
 
 #if defined(PADDLE_WITH_CINN)
   BindTest(&m);
-  cinn::pybind::BindCINN(&m);
+  py::module cinn =
+     m.def_submodule("cinn", "Compiler Infrastructure for Neural Networks");
+  cinn::pybind::BindCINN(&cinn);
+  cinn::pybind::BindAutotuner(&cinn);
 #endif
 
   BindPir(&m);

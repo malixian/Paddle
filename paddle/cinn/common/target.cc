@@ -17,6 +17,10 @@
 #include <driver_types.h>
 #endif
 
+#if defined(CINN_WITH_HIP) || defined(CINN_WITH_SYCL)
+#include <hip/hip_runtime.h>
+#endif
+
 #include <glog/logging.h>
 
 #include <regex>
@@ -284,6 +288,30 @@ std::string Target::device_name_str() const {
     PADDLE_THROW(::common::errors::Unavailable(
         " cudaGetDeviceProperties() returned error %s",
         cudaGetErrorString(result)));
+    return 0;
+  }
+  std::string device_name = properties.name;
+  device_name = std::regex_replace(device_name, std::regex(" "), "_");
+  return std::regex_replace(device_name, std::regex("-"), "_");
+#elif defined(CINN_WITH_HIP) || defined(CINN_WITH_SYCL)
+ int device_idx = 0;
+  hipError_t result = hipGetDevice(&device_idx);
+  if (result != hipSuccess) {
+    // Call cudaGetLastError() to clear the error bit
+    result = hipGetLastError();
+    PADDLE_THROW(::common::errors::Unavailable(
+        " hipGetDevice() returned error %s", hipGetErrorString(result)));
+    return 0;
+  }
+
+  hipDeviceProp_t properties;
+  result = hipGetDeviceProperties(&properties, device_idx);
+  if (result != hipSuccess) {
+    // Call cudaGetLastError() to clear the error bit
+    result = hipGetLastError();
+    PADDLE_THROW(::common::errors::Unavailable(
+        " cudaGetDeviceProperties() returned error %s",
+        hipGetErrorString(result)));
     return 0;
   }
   std::string device_name = properties.name;

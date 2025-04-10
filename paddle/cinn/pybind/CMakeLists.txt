@@ -16,6 +16,15 @@ set(srcs
 
 gather_srcs(cinnapi_src SRCS ${srcs})
 
+
+ file(GLOB_RECURSE autotuner_srcs CONFIGURE_DEPENDS autotuner/*.cc)
+ 
+ cc_library(
+     autotuner_bindings
+     SRCS ${autotuner_srcs}
+     DEPS add_cinn_pass schedule_config_search)
+
+
 if(WITH_CUDA)
   message(STATUS "Compile core_api with CUDA support")
   cinn_nv_library(
