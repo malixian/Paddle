@@ -24,6 +24,7 @@
 
 #ifdef PADDLE_WITH_HIP
 #include "paddle/phi/kernels/gpudnn/conv_miopen_helper.h"
+#include "paddle/phi/backends/dynload/roccache.h"
 #else
 #include "paddle/phi/kernels/gpudnn/conv_cudnn_v7.h"
 #endif
@@ -69,6 +70,7 @@ void ConvCudnnKernelImplV7(const DenseTensor* transformed_input,
 
   auto handle = ctx.cudnn_handle();
   auto workspace_handle = ctx.cudnn_workspace_handle();
+  auto gpu_stream = ctx.stream();
 
   auto layout_format = phi::backends::gpu::GetCudnnTensorFormat(layout);
   auto dtype = phi::backends::gpu::CudnnDataType<T>::type;
@@ -143,7 +145,17 @@ void ConvCudnnKernelImplV7(const DenseTensor* transformed_input,
              &o_h,
              &o_w);
   }
-
+  /*
+  for (auto s : strides) {
+     std::cout<<"stride: "<<s<<" ";
+  }
+  std::cout<<"\n";
+  for (auto pad : padding_common) {
+     std::cout<<"padding: "<<pad<<" ";
+  }
+  std::cout<<"\n";
+  std::cout<<"MIopen conv input i_n:"<<i_n<<" i_c:"<<i_c<<" i_d:"<<i_d<<" i_h:"<<i_h<<" i_w:"<<i_w<<" output o_n:"<<o_n<<" o_c:"<<o_c<<" o_d:"<<o_d<<" o_h:"<<o_h<<" o_w:"<<o_w<<std::endl;
+  */
   int group_offset_in = i_c / groups * i_h * i_w * i_d;
   int group_offset_out = o_c / groups * o_h * o_w * o_d;
   int group_offset_filter = transformed_filter_channel->numel() / groups;
@@ -182,6 +194,13 @@ void ConvCudnnKernelImplV7(const DenseTensor* transformed_input,
   // VLOG(4) << "Conv: use_addto = " << ctx.Attr<bool>("use_addto");
 
 #ifdef PADDLE_WITH_HIP
+  hipEvent_t start, stop;
+  hipEventCreate(&start);
+  hipEventCreate(&stop);
+ 
+  hipEventRecord(start, gpu_stream); 
+
+  /*
   workspace_handle.RunFunc(
       [&](void* workspace_ptr) {
         PADDLE_ENFORCE_GPU_SUCCESS(
@@ -200,6 +219,81 @@ void ConvCudnnKernelImplV7(const DenseTensor* transformed_input,
                                                    workspace_size));
       },
       workspace_size);
+  */
+
+  int kernel_id = -1;
+  if (i_h == 224 && i_c == 64 && o_c == 64) {
+      kernel_id = 4;
+  } else if (i_h == 112 && i_c == 64 && o_c == 128) {
+      kernel_id = 5;
+  } else if (i_h == 112 && i_c == 128 && o_c == 128) {
+      kernel_id = 6;
+  } else if (i_h == 56 && i_c == 128 && o_c == 256) {
+      kernel_id = 7;
+  } else if (i_h == 56 && i_c == 256 && o_c == 256) {
+      kernel_id = 8;
+  } else if (i_h == 28 && i_c == 256 && o_c == 512) {
+      kernel_id = 9;
+  } else if (i_h == 28 && i_c == 512 && o_c == 512) {
+      kernel_id = 10;
+  } else if (i_h == 14 && i_c == 512 && o_c == 512) {
+      kernel_id = 11;
+  }
+  std::cout<<"roccache select kernel id: "<<kernel_id<<std::endl;
+  if (kernel_id != -1) {
+      void* workspace_ptr = nullptr;
+      hipMalloc(&workspace_ptr, workspace_size);
+      phi::dynload::rocCacheConv2dFwd(&gpu_stream,
+		                 kernel_id,
+		                 input_data,
+				 filter_data,
+				 output_data,
+				 workspace_ptr,
+				 workspace_size,
+				 i_n,
+				 i_c,
+				 i_h,
+				 i_w,
+				 o_c,
+				 o_h,
+				 o_w,
+				 3,
+				 3,
+				 1,
+				 1); 
+      hipStreamSynchronize(gpu_stream);
+      hipFree(workspace_ptr);
+  } else {
+    workspace_handle.RunFunc(
+      [&](void* workspace_ptr) {
+        PADDLE_ENFORCE_GPU_SUCCESS(
+            phi::dynload::miopenConvolutionForward(handle,
+                                                   &alpha,
+                                                   args.idesc.desc(),
+                                                   input_data,
+                                                   args.wdesc.desc(),
+                                                   filter_data,
+                                                   args.cdesc.desc(),
+                                                   fwd_result.algo,
+                                                   &beta,
+                                                   args.odesc.desc(),
+                                                   output_data,
+                                                   workspace_ptr,
+                                                   workspace_size));
+      },
+      workspace_size);
+  
+  
+  }
+
+  hipEventRecord(stop, gpu_stream);
+  hipEventSynchronize(stop);
+  float elapsed_ms = 0.0f;
+  hipEventElapsedTime(&elapsed_ms, start, stop);
+  std::cout << "Kernel time (on stream): " << elapsed_ms << " ms" << std::endl;
+  hipEventDestroy(start);
+  hipEventDestroy(stop);
+
 #else
   ConvRunner<T, ConvKind::kForward>::Apply(ctx,
                                            args,
@@ -517,7 +611,8 @@ void ConvCudnnKernel(const Context& ctx,
                              groups,
                              &transformed_output);
 #else
-  ConvCudnnKernelImplV7<T>(&transformed_input,
+  // ConvCudnnKernelImplV7<T>
+  ConvCudnnKernelImplV7<float>(&transformed_input,
                            &transformed_filter_channel,
                            ctx,
                            strides,

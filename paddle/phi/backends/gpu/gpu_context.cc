@@ -420,6 +420,9 @@ struct GPUContext::Impl {
 #endif
 #endif
     });
+#ifdef PADDLE_WITH_HIP
+    phi::dynload::rocblas_set_stream(blas_handle_, stream());
+#endif
     PADDLE_ENFORCE_NOT_NULL(
         blas_handle_,
         common::errors::InvalidArgument(
@@ -481,6 +484,9 @@ struct GPUContext::Impl {
         }
       }
     });
+#ifdef PADDLE_WITH_HIP
+     dynload::miopenSetStream(dnn_handle_, stream());
+#endif
     PADDLE_ENFORCE_NOT_NULL(
         dnn_handle_,
         common::errors::InvalidArgument(
@@ -644,6 +650,9 @@ struct GPUContext::Impl {
       std::lock_guard<std::mutex> guard(blas_mtx_);
       callback(blas_handle_);
     }
+#ifdef PADDLE_WITH_HIP
+    phi::dynload::rocblas_set_stream(blas_handle_, stream());
+#endif
   }
 
   inline void TensorCoreCublasCallIfAvailable(

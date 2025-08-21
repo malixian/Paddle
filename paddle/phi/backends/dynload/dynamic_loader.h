@@ -51,6 +51,7 @@ void* GetROCFFTDsoHandle();
 void* GetCusparseLtDsoHandle();
 void* GetXPTIDsoHandle();
 void* GetAfsApiDsoHandle();
+void* GetROCCACHEDsoHandle();
 
 void SetPaddleLibPath(const std::string&);
 

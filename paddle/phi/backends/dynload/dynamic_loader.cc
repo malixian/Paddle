@@ -49,6 +49,13 @@ COMMON_DECLARE_string(cusparse_dir);
 COMMON_DECLARE_string(win_cuda_bin_dir);
 #ifdef PADDLE_WITH_HIP
 
+PHI_DEFINE_string(roccache_dir,
+                  "/workspace/roccache/lib",
+                  "Specify path for loading libroccache_conv2d.so. For instance, "
+                  "/opt/roccache/lib. If empty [default], dlopen "
+                  "will search miopen from LD_LIBRARY_PATH");
+
+
 PHI_DEFINE_string(miopen_dir,
                   "",
                   "Specify path for loading libMIOpen.so. For instance, "
@@ -514,6 +521,12 @@ void* GetCUDNNDsoHandle() {
 #endif
 #endif
 }
+
+//#if defined(PADDLE_WITH_HIP)
+void* GetROCCACHEDsoHandle() {
+    return GetDsoHandleFromSearchPath(FLAGS_roccache_dir, "libroccache_conv2d.so", false);
+}
+//#endif
 
 void* GetCUPTIDsoHandle() {
 #if defined(__APPLE__) || defined(__OSX__)

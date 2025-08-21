@@ -195,6 +195,7 @@ struct CUBlas<phi::dtype::float16> {
                    const float16 *beta,
                    float16 *C,
                    int ldc) {
+    std::cout<<"call hgemm M:"<<m<<" N:"<<n<<" K:"<<k<<std::endl;
     PADDLE_ENFORCE_GPU_SUCCESS(phi::dynload::rocblas_hgemm(
         handle,
         transa,
@@ -1440,6 +1441,7 @@ inline void Blas<phi::GPUContext>::BatchedGEMM(CBLAS_TRANSPOSE transA,
                                    ? rocblas_operation_none
                                    : rocblas_operation_transpose;
   const int64_t strideC = M * N;
+  std::cout<<"call batched hgemm M:"<<M<<" N:"<<N<<" K:"<<K<<std::endl;
   context_.CublasCall([&](rocblas_handle handle) {
     PADDLE_ENFORCE_GPU_SUCCESS(phi::dynload::rocblas_hgemm_strided_batched(
         handle,

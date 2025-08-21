@@ -30,7 +30,8 @@ if(WITH_ROCM)
     hiprand.cc
     hipfft.cc
     rocsparse.cc
-    rocsolver.cc)
+    rocsolver.cc
+    roccache.cc)
 endif()
 
 # There is no macOS version of NCCL.
