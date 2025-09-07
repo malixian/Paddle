@@ -27,8 +27,17 @@ from .candidate_generator import (
 from .candidate_searcher import (
     CandidateSearcher
 )
-from .ops_searcher import (
-    OpsSearcher
+#from .ops_searcher import (
+#    OpsSearcher
+#)
+
+from .model_searcher import (
+    ModelSearcher
+)
+
+from .config import (
+    ModelInfo,
+    SearchOption
 )
 
 

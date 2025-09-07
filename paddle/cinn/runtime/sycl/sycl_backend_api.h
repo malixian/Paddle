@@ -76,7 +76,7 @@ inline const char* SYCLGetErrorString(std::error_code error_code) {
     } catch (const ::sycl::exception& e) {                              \
       PADDLE_THROW(::common::errors::Fatal(                             \
           "SYCL Driver Error in Paddle CINN: %s failed with error: %s", \
-          e.get_cl_code(),                                              \
+          e.code().value(),                                              \
           e.what()));                                                   \
     }                                                                   \
   }

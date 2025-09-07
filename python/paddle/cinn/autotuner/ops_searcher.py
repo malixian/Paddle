@@ -12,7 +12,7 @@ from paddle.cinn import autotuner
 from .bench_func import WeightedBenchFunc
 from .candidate_generator import BaseCandidateGenerator
 from .candidate_searcher import CandidateSearcher
-from . import utils
+import utils
 
 class OpsSearcher:
     def __init__(
@@ -73,7 +73,7 @@ class OpsSearcher:
             is_reduce_dynamic
         ))
         bucket_info.space = space
-        print(bucket_info)
+        logging.info(bucket_info)
         return bucket_info
 
     def write_bucket_info(
