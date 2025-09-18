@@ -82,6 +82,7 @@ std::string Compiler::CompileToSo(const std::string& source_code,
 
 void Compiler::SetDeviceArchOptions(const Arch gpu_type) {
   std::string gpu_version = SYCLBackendAPI::Global()->GetGpuVersion();
+  gpu_version = "gfx936";
   gpu_type.Match(
       [&](common::HygonDCUArchSYCL) {
         device_arch_options = "-fsycl";

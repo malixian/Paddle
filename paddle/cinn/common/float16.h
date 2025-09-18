@@ -46,7 +46,7 @@
 #if defined(__HIPCC__)
 #define __HIP_PLATFORM_AMD__
 #include <hip/hip_fp16.h>
-#define CINN_HIP_FP16
+//#define CINN_HIP_FP16
 #endif
 #endif
 
