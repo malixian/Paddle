@@ -637,33 +637,43 @@ EXPAND_REDUCE_FP16_MACRO(CINN_BLOCK_REDUCE_INTERNAL_MACRO)
 #undef CINN_BLOCK_REDUCE_INTERNAL_IMPL
 #undef CINN_BLOCK_REDUCE_INTERNAL_MACRO
 
-#define CINN_BLOCK_REDUCE_IMPL(REDUCE_TYPE, INITIAL_VALUE, DTYPE)         \
-  inline DTYPE cinn_block_reduce_##REDUCE_TYPE(                           \
-      const DTYPE *buf,                                                   \
-      int offset,                                                         \
-      int extend,                                                         \
-      const sycl::nd_item<3> &item_ct1) {                                 \
-    DTYPE tmp_val = (DTYPE)(INITIAL_VALUE);                               \
-    for (int i = item_ct1.get_local_id(2); i < extend;                    \
-         i += item_ct1.get_local_range(2)) {                              \
-      tmp_val = cinn_##REDUCE_TYPE(tmp_val, buf[offset + i]);             \
-    }                                                                     \
-    return cinn_block_reduce_##REDUCE_TYPE##_internal(tmp_val, item_ct1); \
+#define CINN_BLOCK_REDUCE_IMPL(DTYPE, cinn_warp_shuffle_internal)               \
+  DTYPE tmp_val = cinn_warp_shuffle_internal(*value, item_ct1);                             \
+  size_t W = item_ct1.get_local_range().size();                                            \
+  size_t tid_x = item_ct1.get_local_id(2);                                                 \
+  size_t bdim_x = item_ct1.get_local_range(2);                                             \
+  if (return_warp || bdim_x <= W) {                                                  \
+    return tmp_val;                                                                  \
+  }                                                                                  \
+  item_ct1.barrier(sycl::access::fence_space::local_space);                                \
+  if (tid_x % W == 0) {                                                              \
+    shm[tid_x / W] = tmp_val;                                                        \
+  }                                                                                  \
+  item_ct1.barrier(sycl::access::fence_space::local_space);                                \
+  if (tid_x < (bdim_x + W - 1) / W) {                                                \
+    shm[0] = cinn_warp_shuffle_internal(shm[tid_x], item_ct1);                             \
+  }                                                                                  \
+  item_ct1.barrier(sycl::access::fence_space::local_space);                                \
+  return shm[0];
+#define CINN_BLOCK_REDUCE_MACRO(REDUCE_TYPE, INITIAL_VALUE, DTYPE) \
+    inline DTYPE cinn_block_reduce_##REDUCE_TYPE(DTYPE *value, DTYPE* shm, bool return_warp, const sycl::nd_item<3> &item_ct1) { \
+    CINN_BLOCK_REDUCE_IMPL(DTYPE, cinn_warp_shuffle_##REDUCE_TYPE##_internal); \
   }
 
-EXPAND_REDUCE_INT32_MARCO(CINN_BLOCK_REDUCE_IMPL)
-EXPAND_REDUCE_INT64_MARCO(CINN_BLOCK_REDUCE_IMPL)
-EXPAND_REDUCE_FP32_MACRO(CINN_BLOCK_REDUCE_IMPL)
-EXPAND_REDUCE_FP64_MACRO(CINN_BLOCK_REDUCE_IMPL)
-EXPAND_REDUCE_BOOL_MACRO(CINN_BLOCK_REDUCE_IMPL)
+EXPAND_REDUCE_INT32_MARCO(CINN_BLOCK_REDUCE_MACRO)
+EXPAND_REDUCE_INT64_MARCO(CINN_BLOCK_REDUCE_MACRO)
+EXPAND_REDUCE_FP32_MACRO(CINN_BLOCK_REDUCE_MACRO)
+EXPAND_REDUCE_FP64_MACRO(CINN_BLOCK_REDUCE_MACRO)
+EXPAND_REDUCE_BOOL_MACRO(CINN_BLOCK_REDUCE_MACRO)
 
-#ifdef CINN_SYCL_BF16
-EXPAND_REDUCE_BF16_MACRO(CINN_BLOCK_REDUCE_IMPL)
+#ifdef CINN_HIP_BF16
+EXPAND_REDUCE_BF16_MACRO(CINN_BLOCK_REDUCE_MACRO)
 #endif
 
-#ifdef CINN_SYCL_FP16
-EXPAND_REDUCE_FP16_MACRO(CINN_BLOCK_REDUCE_IMPL)
+#ifdef CINN_HIP_FP16
+//EXPAND_REDUCE_FP16_MACRO(CINN_BLOCK_REDUCE_MACRO)
 #endif
+
 
 #undef CINN_BLOCK_REDUCE_IMPL
 
@@ -935,6 +945,10 @@ int cinn_sycl_resize_bicubic(const int *buf,
 
   return value;
 }
+
+#define CINN_ENTAIL_LOOP_CONDITION(__loop_var, __cond, __stride) \
+  }                                                              \
+  for (decltype(__stride) __loop_var = 0; __cond; __loop_var += __stride) {
 
 // *************************************************************** //
 // end of macro undef

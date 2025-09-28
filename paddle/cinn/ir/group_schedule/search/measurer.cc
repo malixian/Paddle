@@ -97,6 +97,7 @@ void Measurer::Prepare() {
 }
 
 void Measurer::Compile() {
+  //try {
   Prepare();
   // auto w0 = exe_scope_->FindVar("conv2d_0.w_0")->Get<phi::DenseTensor>();
   // const float* w0_cpu = w0.data<float>();
@@ -122,6 +123,10 @@ void Measurer::Compile() {
   executor_.reset(new paddle::framework::InterpreterCore(
       place_, {"out@fetch"}, kernel_program_->block(), exe_scope_.get()));
   VLOG(4) << "[Debug] Measurer::Compile() Kernel after Measurer compile: \n"<< *kernel_program_;
+  /*
+  } catch (const std::exception& e) {
+    VLOG(1) << "\e[31m" << "[ERROR][Autotuner] Error encountered during tuned kernel compile: the operator might not support the specified parameter values. For more details, please refer to: " << e.what() << "\e[0m \n"; 
+  }*/
   common::PerformanceStatisticsEnd(compile_label_);
 }
 
@@ -180,6 +185,7 @@ void Measurer::Run(const std::unordered_map<std::string, std::vector<int64_t>>&
                    int repeat) {
   std::vector<std::string> input_names;
   std::vector<phi::DenseTensor> input_tensors;
+  //try{ 
   for (const auto item : input_name_and_shape) {
     // LOG(INFO) << "input_name: " << item.first;
 
@@ -187,8 +193,10 @@ void Measurer::Run(const std::unordered_map<std::string, std::vector<int64_t>>&
     //   LOG(INFO) << "dim[" << i << "]: " << item.second[i]; 
     // }
     input_names.push_back(item.first);
+    LOG(INFO) << "\033[35m [Debug] Find Name: " << item.first  <<  "\033[0m";
     auto tensor =
         executor_->local_scope()->FindVar(item.first)->Get<phi::DenseTensor>();
+
     phi::DDim ddim(item.second.data(), item.second.size());
     tensor.ResizeAndAllocate(ddim);
     float* data = tensor.mutable_data<float>(ddim, place_);
@@ -215,7 +223,6 @@ void Measurer::Run(const std::unordered_map<std::string, std::vector<int64_t>>&
     input_tensors.push_back(tensor);
   }
   std::string input_shape_label = ConcatShapeAsLabel(input_name_and_shape);
-
   common::PerformanceStatistician& ps =
       common::PerformanceStatistician::Instance();
   for (int i = 0; i < repeat; ++i) {
@@ -229,8 +236,12 @@ void Measurer::Run(const std::unordered_map<std::string, std::vector<int64_t>>&
     // }
     auto tensor = PADDLE_GET_CONST(phi::DenseTensor, fetch_list[0]);
     VLOG(3) << "[Debug] Output Tensor: " <<  paddle::framework::PrintDenseTensor(&tensor,0, 50);
-
   }
+  /*
+  } catch(const std::exception& e) {
+           VLOG(1) << "\e[31m" << "[ERROR][Autotuner] Error encountered during tuning: the operator might not support the specified parameter values. For more details, please refer to: " << e.what() << "\e[0m \n";	
+  }
+  */
 }
 
 MeasureResult Measurer::Result() const {

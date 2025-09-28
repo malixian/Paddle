@@ -91,6 +91,8 @@ void SYCLBackendAPI::set_device(int device_id) {
     // create context and queue
     this->contexts[device_id] =
         new ::sycl::context(this->devices[device_id], exception_handler);
+    this->queues[device_id].push_back(new ::sycl::queue(
+        *this->contexts[device_id], this->devices[device_id], q_prop));
   }
   this->now_device_id = device_id;
 }
@@ -239,6 +241,7 @@ void SYCLBackendAPI::stream_sync(void* stream) {
 }
 
 ::sycl::queue* SYCLBackendAPI::get_now_queue(void* raw_stream) {
+  /*
   if (this->queues[now_device_id].size() == 0) {
     int current_device_id;
     hipGetDevice(&current_device_id);
@@ -254,12 +257,12 @@ void SYCLBackendAPI::stream_sync(void* stream) {
     auto Q =  new ::sycl::queue(::sycl::make_queue<::sycl::backend::ext_oneapi_hip>(
         hipStream, InteropContext));
     this->queues[now_device_id].push_back(Q);
-    }
+    } */
   return this->queues[now_device_id][0];
 }
 
 std::string SYCLBackendAPI::GetGpuVersion() {
-  return "gfx928";
+  return "gfx936";
   ::sycl::device device = this->devices[now_device_id];
   ::sycl::backend backend = device.get_backend();
   switch (backend) {

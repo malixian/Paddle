@@ -39,13 +39,13 @@ void BindSearch(pybind11::module *m) {
   py::class_<Measurer, std::shared_ptr<Measurer>>(*m, "Measurer")
       .def(py::init(
         [](std::shared_ptr<::pir::Program> program){
-            LOG(INFO) << "[Pybind::Measurer] Pass-in Single Program: \n" << *program;
+            VLOG(3) << "[Pybind::Measurer] Pass-in Single Program: \n" << *program;
             return std::make_shared<Measurer>(program.get());
         }))
       .def(py::init(
         [](std::shared_ptr<::pir::Program> main_program, std::shared_ptr<::pir::Program> startup_program){
-            // LOG(INFO) << "[Pybind::Measurer] Pass-in Main Program: \n" << *main_program;
-            // LOG(INFO) << "[Pybind::Measurer] Pass-in StartUp Program: \n" << *startup_program;
+            VLOG(3) << "[Pybind::Measurer] Pass-in Main Program: \n" << *main_program;
+            VLOG(3) << "[Pybind::Measurer] Pass-in StartUp Program: \n" << *startup_program;
             return std::make_shared<Measurer>(main_program.get(), startup_program.get());
         }))
       .def("compile", &Measurer::Compile)

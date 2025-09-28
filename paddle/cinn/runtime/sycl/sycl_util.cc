@@ -27,9 +27,27 @@
 #include<hip/hip_runtime.h>
 #endif
 
+#include <ostream>
+
 namespace cinn {
 namespace runtime {
 namespace sycl {
+
+void infer_shape_set_value(int row, int col, int64_t value, int64_t **v) {
+  v[row][col] = value;
+}
+
+int64_t cinn_get_value_in_sycl_kernel_args(void *v_args, int idx) {
+  std::cout << "cinn_get_value_in_sycl_kernel_args: " << idx << std::endl;
+  std::flush(std::cout);
+  cinn_pod_value_t *args = static_cast<cinn_pod_value_t *>(v_args);
+  return args[idx].operator int64_t();
+}
+
+void *cinn_get_item_in_sycl_kernel_args(void *v_args, int idx) {
+  cinn_pod_value_t *args = static_cast<cinn_pod_value_t *>(v_args);
+  return static_cast<void *>(&args[idx]);
+}
 
 void cinn_call_sycl_kernel(void *kernel_fn,
                            void *v_args,
@@ -45,7 +63,9 @@ void cinn_call_sycl_kernel(void *kernel_fn,
   VLOG(3) << "cinn_call_sycl_kernel, grid_dim={" << grid_x << ", " << grid_y
           << ", " << grid_z << "}, block_dim={" << block_x << ", " << block_y
           << ", " << block_z << "}, num_args=" << num_args;
-  
+
+  std::cout << "cinn_call_sycl_kernel, grid_dim={" << grid_x << ", " << grid_y << ", " << grid_z << "}, block_dim={" << block_x << ", " << block_y << ", " << block_z << "}, num_args=" << num_args<<std::endl;
+
   std::vector<void *> kernel_args;
   {
     cinn::utils::RecordEvent record_run("prepare_args",
@@ -61,6 +81,7 @@ void cinn_call_sycl_kernel(void *kernel_fn,
                 << "] is a buffer, addr=" << ss.str();
         kernel_args.emplace_back(addr);
       } else {
+	std::cout<<"args idx:"<<idx<<" data:"<<*reinterpret_cast<int32_t*>(args[idx].data_addr())<<std::endl;
         kernel_args.emplace_back((args[idx].data_addr()));
       }
     }

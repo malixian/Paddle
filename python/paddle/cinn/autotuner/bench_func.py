@@ -81,10 +81,15 @@ class WeightedBenchFunc(BaseBenchFunc):
         # logging.info(f"############# {x}")
 
         # exe.run(self.program_bundle[0], feed={"x": x}, fetch_list=[self.program_bundle[2],])   
-
-        self.measurer.compile()
-        for inputs in self.inputs_shape_sampling:
-            self.measurer.run(inputs, self.repeats)
+        try:
+            self.measurer.compile()
+        except Exception as e:
+            logging.error(f"[Autotune] Error encountered during tuned kernel compile: {e}")
+        try: 
+            for inputs in self.inputs_shape_sampling:
+                self.measurer.run(inputs, self.repeats)
+        except Exception as e:
+            logging.error(f"[Autotune] Error encountered during tuned kernel running: {e}")
         
         return self.measurer.result().avg_kernel_execute_time
 

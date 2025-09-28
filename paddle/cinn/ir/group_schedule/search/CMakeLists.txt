@@ -5,4 +5,3 @@ cc_library(
   SRCS config_searcher.cc measurer.cc
   DEPS add_cinn_pass)
 
-gather_srcs(cinnapi_src SRCS config_searcher.cc measurer.cc)

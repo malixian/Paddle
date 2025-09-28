@@ -66,6 +66,15 @@ ir::Module CreateSwitchWithBroadcastConditionModule(
                          ir::CallType::Extern,
                          ir::FunctionRef(),
                          0);
+#elif defined(CINN_WITH_SYCL)
+      ir::Expr call_get_value_in_kernel_args =
+          ir::Call::Make(Int(64),
+                         runtime::intrinsic::get_value_in_sycl_kernel_args,
+                         {kernel_args, ir::Expr(item.first)},
+                         {},
+                         ir::CallType::Extern,
+                         ir::FunctionRef(),
+                         0);
 #else
       CINN_NOT_IMPLEMENTED
 #endif
@@ -363,10 +372,13 @@ void detail::CollectBucketStrategyHostFunctionVisitor::ProcessLoweredFunc(
 
 void detail::CollectBucketStrategyHostFunctionVisitor::ProcessArgs(
     ir::LoweredFunc func) {
+      VLOG(3) << "======= CALL ProcessArgs ======";
   const std::vector<ir::Argument> &args = func->args;
   for (int i = 0; i < args.size(); ++i) {
+      VLOG(3) << "[Debug] Process Arg:" << i; 
     if (args[i].is_var()) {
 #ifdef CINN_WITH_CUDA
+      VLOG(3) << "[Debug] ProcessArg CINN CUDA ARG: " << i;
       ir::Expr call_get_value_in_kernel_args =
           ir::Call::Make(Int(64),
                          runtime::intrinsic::get_value_in_cuda_kernel_args,
@@ -376,6 +388,7 @@ void detail::CollectBucketStrategyHostFunctionVisitor::ProcessArgs(
                          ir::FunctionRef(),
                          0);
 #elif defined(CINN_WITH_HIP)
+      VLOG(3) << "[Debug] ProcessArg CINN HIP ARG: " << i;
       ir::Expr call_get_value_in_kernel_args =
           ir::Call::Make(Int(64),
                          runtime::intrinsic::get_value_in_hip_kernel_args,
@@ -385,6 +398,7 @@ void detail::CollectBucketStrategyHostFunctionVisitor::ProcessArgs(
                          ir::FunctionRef(),
                          0);
 #elif defined(CINN_WITH_SYCL)
+      VLOG(3) << "[Debug] ProcessArg CINN SYCL ARG: " << i;
        ir::Expr call_get_value_in_kernel_args =
            ir::Call::Make(Int(64),
                           runtime::intrinsic::get_value_in_sycl_kernel_args,
@@ -403,6 +417,7 @@ void detail::CollectBucketStrategyHostFunctionVisitor::ProcessArgs(
       arg_defs_.push_back(stmt);
     }
   }
+  VLOG(3) << "======= END ProcessArgs ======";
 }
 
 ir::LoweredFunc

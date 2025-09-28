@@ -223,15 +223,22 @@ void CodeGenSyclDevice::PrintFunctionDeclaration(const ir::_LoweredFunc_ *op) {
       if (arg.var_arg()->type().is_cpp_handle()) {
         // str_ += kCKeywordRestrict;
       }
-      str_ += GetTypeRepr(arg.type());
+      if (GetTypeRepr(arg.type()) == "int32_t") {
+          str_ += "int64_t";
+      } else str_ += GetTypeRepr(arg.type());
       str_ += " ";
       str_ += arg.name();
-      str_ += " = (";
-      str_ += GetTypeRepr(arg.type());
+      if (GetTypeRepr(arg.type()) == "int32_t")
+          str_ += " = *reinterpret_cast<int64_t*>";
+      else {
+          str_ += " = (";
+          str_ += GetTypeRepr(arg.type());
+      }
     } else {
       CINN_NOT_IMPLEMENTED
     }
-    str_ += ")(void_args[";
+    if (GetTypeRepr(arg.type()) == "int32_t") str_ += "((int64_t)void_args[";
+    else str_ += ")(void_args[";
     str_ += std::to_string(i);
     str_ += "]);\n";
   }
@@ -294,6 +301,13 @@ void CodeGenSyclDevice::Visit(const ir::Call *op) {
   }
   str_ += op->name;
   str_ += "(";
+
+  // sycl first parameter should be buffer poiner
+  if ((op->name.find("cinn_block_reduce") != std::string::npos) ||
+      (op->name.find("cinn_warp_reduce") != std::string::npos)) {
+    str_ += "&";
+  }
+
 
   if (!op->read_args.empty()) {
     for (int i = 0; i < op->read_args.size() - 1; i++) {

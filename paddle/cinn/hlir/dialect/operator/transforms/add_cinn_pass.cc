@@ -124,7 +124,9 @@ void ApplyPdToCinnPass(
     const std::function<std::shared_ptr<::pir::PassManager>()>&
         CreatePassManager) {
   std::shared_ptr<pir::PassManager> pass_manager = CreatePassManager();
+  LOG(INFO) << "Before cinn::dialect::ir::CreateReduceAsToSumPass";
   pass_manager->AddPass(cinn::dialect::ir::CreateReduceAsToSumPass());
+  LOG(INFO) << "Before cinn::dialect::ir::CreateReplaceZeroScaleToFullPass";
   pass_manager->AddPass(cinn::dialect::ir::CreateReplaceZeroScaleToFullPass());
 #if (defined(PADDLE_WITH_CUDA) && CUDA_VERSION >= 11060) || \
     defined(PADDLE_WITH_HIP)
@@ -134,16 +136,24 @@ void ApplyPdToCinnPass(
 #endif
 
 #endif
+  LOG(INFO) << "Before cinn::dialect::ir::CreateFuseParallelMatmulPass";
   if (FLAGS_enable_fuse_parallel_matmul_pass) {
     pass_manager->AddPass(cinn::dialect::ir::CreateFuseParallelMatmulPass());
   }
+  LOG(INFO) << "Before cinn::dialect::ir::CreateRemoveAssignOutPass";
   pass_manager->AddPass(cinn::dialect::ir::CreateRemoveAssignOutPass());
+  LOG(INFO) << "Before cinn::dialect::ir::CreateFoldFullOpPass";
   pass_manager->AddPass(cinn::dialect::ir::CreateFoldFullOpPass());
+  LOG(INFO) << "Before cinn::dialect::ir::CreateConv2dTransposeFilterPass";
   pass_manager->AddPass(cinn::dialect::ir::CreateConv2dTransposeFilterPass());
+  LOG(INFO) << "Before cinn::dialect::ir::CreateConvertMEA2FAPass";
   pass_manager->AddPass(cinn::dialect::ir::CreateConvertMEA2FAPass());
+  LOG(INFO) << "Before cinn::dialect::ir::CreateConvertFA2QKVMHAPass";
   pass_manager->AddPass(cinn::dialect::ir::CreateConvertFA2QKVMHAPass());
+  LOG(INFO) << "Before cinn::dialect::ir::CreatePdOpToCinnOpPass";
   pass_manager->AddPass(cinn::dialect::ir::CreatePdOpToCinnOpPass());
 
+  LOG(INFO) << "Before pir::CreateDeadCodeEliminationPass";
   pass_manager->AddPass(pir::CreateDeadCodeEliminationPass());
 
   pass_manager->Run(program);
@@ -283,8 +293,11 @@ void ApplyCinnPass(
     // the previous process
     ApplyShapeOptimizationPass(program, CreatePassManager);
   }
+  LOG(INFO) << "Before ApplyPdToCinnPass";
   ApplyPdToCinnPass(program, CreatePassManager);
+  LOG(INFO) << "Before ApplyCinnPreprocessPass";
   ApplyCinnPreprocessPass(program, CreatePassManager);
+  LOG(INFO) << "Before ApplyBuildGroupOpPass";
   ApplyBuildGroupOpPass(program, CreatePassManager);
   PirToPyCodeConverter(program)
       .file_name("group_op_programs.py")
