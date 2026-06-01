@@ -1,25 +1,54 @@
-// Copyright (c) 2024 PaddlePaddle Authors. All Rights Reserved.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 #include "paddle/cinn/runtime/sycl/sycl_backend_api.h"
+
 #include <glog/logging.h>
+
+#ifndef __HIP_PLATFORM_AMD__
+#define __HIP_PLATFORM_AMD__
+#endif
+
 #include <hip/hip_runtime.h>
-#include <sycl/ext/oneapi/experimental/backend/hip.hpp>
+
+#include <sycl/backend.hpp>
+#include <sycl/detail/core.hpp>
+#include <sycl/detail/backend_traits_hip.hpp>
+
+#include <algorithm>
+#include <array>
+#include <iostream>
+#include <optional>
+#include <vector>
 
 namespace cinn {
 namespace runtime {
 namespace sycl {
+
+namespace {
+
+#define HIP_CHECK(cmd)                                                       \
+  do {                                                                       \
+    hipError_t error = (cmd);                                                \
+    if (error != hipSuccess) {                                               \
+      std::cerr << "HIP error: " << hipGetErrorString(error)                 \
+                << " at " << __FILE__ << ":" << __LINE__ << std::endl;      \
+      std::abort();                                                          \
+    }                                                                        \
+  } while (0)
+
+::sycl::async_handler MakeAsyncHandler() {
+  return [](::sycl::exception_list exceptions) {
+    for (const std::exception_ptr& e : exceptions) {
+      try {
+        std::rethrow_exception(e);
+      } catch (const ::sycl::exception& e) {
+        PADDLE_THROW(::common::errors::Fatal(
+            "Caught asynchronous SYCL exception:\n %s ", e.what()));
+      }
+    }
+  };
+}
+
+}  // namespace
+
 SYCLBackendAPI* SYCLBackendAPI::Global() {
   static auto* inst = new SYCLBackendAPI();
   return inst;
@@ -27,11 +56,13 @@ SYCLBackendAPI* SYCLBackendAPI::Global() {
 
 void SYCLBackendAPI::Init(Arch arch) {
   if (initialized_) return;
+
   auto devices = ::sycl::device::get_devices(::sycl::info::device_type::gpu);
-  if (devices.size() == 0) {
-    std::cerr << "No valid gpu device found!";
-  }
-  // Target::Arch -> sycl::backend
+  PADDLE_ENFORCE_GT(
+      devices.size(),
+      static_cast<size_t>(0),
+      ::common::errors::InvalidArgument("No valid SYCL gpu device found."));
+
   ::sycl::backend backend;
   arch.Match(
       [&](common::UnknownArch) {
@@ -47,82 +78,82 @@ void SYCLBackendAPI::Init(Arch arch) {
       [&](common::HygonDCUArchSYCL) {
         backend = ::sycl::backend::ext_oneapi_hip;
       });
-  // look for matched devices
-  if (this->devices.size() < 8) {
+
+  if (this->devices_.size() < 8) {
     for (auto device : devices) {
       if (device.get_backend() == backend) {
-        this->devices.push_back(device);
+        this->devices_.push_back(device);
       }
     }
   }
-  if (this->devices.size() == 0) {
+
+  if (this->devices_.empty()) {
     std::cerr << "No valid gpu device matched given arch \n";
   }
-  this->contexts.resize(this->devices.size(), nullptr);
-  this->queues.resize(this->devices.size());
+
+  this->contexts_.resize(this->devices_.size());
+  this->queues_.resize(this->devices_.size());
   initialized_ = true;
 }
 
 void SYCLBackendAPI::set_device(int device_id) {
   if (!initialized_) Init(common::UnknownArch{});
+
   PADDLE_ENFORCE_GE(device_id,
-                    0UL,
+                    0,
                     ::common::errors::InvalidArgument(
                         "please set valid device id! device id", device_id));
+
   PADDLE_ENFORCE_LE(
       device_id,
-      this->devices.size() - 1,
+      static_cast<int>(this->devices_.size()) - 1,
       ::common::errors::InvalidArgument("set valid device id! device id: ",
                                         device_id,
                                         " > max device id:",
-                                        this->devices.size() - 1));
-  if (this->contexts[device_id] == nullptr) {
-    auto exception_handler = [](::sycl::exception_list exceptions) {
-      for (const std::exception_ptr& e : exceptions) {
-        try {
-          std::rethrow_exception(e);
-        } catch (const ::sycl::exception& e) {
-          PADDLE_THROW(::common::errors::Fatal(
-              "Caught asynchronous SYCL exception:\n %s ", e.what()));
-        }
-      }
-    };
-    ::sycl::property_list q_prop{
-        ::sycl::property::queue::in_order()};  // In order queue
-    // create context and queue
-    this->contexts[device_id] =
-        new ::sycl::context(this->devices[device_id], exception_handler);
+                                        this->devices_.size() - 1));
+
+  this->now_device_id_ = device_id;
+
+  if (this->queues_[device_id].empty()) {
+    this->contexts_[device_id] =
+        ::sycl::context(this->devices_[device_id], MakeAsyncHandler());
+
+    ::sycl::property_list q_prop{::sycl::property::queue::in_order()};
+    this->queues_[device_id].emplace_back(
+        this->contexts_[device_id], this->devices_[device_id], q_prop);
   }
-  this->now_device_id = device_id;
 }
 
-int SYCLBackendAPI::get_device() { return this->now_device_id; }
+int SYCLBackendAPI::get_device() { return this->now_device_id_; }
 
 int SYCLBackendAPI::get_device_property(DeviceProperty device_property,
                                         std::optional<int> device_id) {
-  int index = device_id.value_or(this->now_device_id);
+  int index = device_id.value_or(this->now_device_id_);
   int rv = -1;
 
   switch (device_property) {
     case DeviceProperty::MaxBlockDimX: {
-      ::sycl::id<3> max_work_item_sizes =
-          this->devices[index]
-              .get_info<::sycl::info::device::max_work_item_sizes>();
-      rv = max_work_item_sizes[0];
+      //::sycl::id<3> max_work_item_sizes =
+      //    this->devices_[index]
+      //        .get_info<::sycl::info::device::max_work_item_sizes<3>>();
+      //rv = static_cast<int>(max_work_item_sizes[0]);
+      rv = 1024;
       break;
     }
     case DeviceProperty::MaxBlockDimY: {
-      ::sycl::id<3> max_work_item_sizes =
-          this->devices[index]
-              .get_info<::sycl::info::device::max_work_item_sizes>();
-      rv = max_work_item_sizes[1];
+      //::sycl::id<3> max_work_item_sizes =
+      //    this->devices_[index]
+      //        .get_info<::sycl::info::device::max_work_item_sizes<3>>();
+      //rv = static_cast<int>(max_work_item_sizes[1]);
+      rv = 1024;
       break;
     }
     case DeviceProperty::MaxBlockDimZ: {
-      ::sycl::id<3> max_work_item_sizes =
-          this->devices[index]
-              .get_info<::sycl::info::device::max_work_item_sizes>();
-      rv = max_work_item_sizes[2];
+      //::sycl::id<3> max_work_item_sizes =
+      //    this->devices_[index]
+      //        .get_info<::sycl::info::device::max_work_item_sizes<3>>();
+      //rv = static_cast<int>(max_work_item_sizes[2]);
+      rv = 1024;
       break;
     }
     case DeviceProperty::MaxGridDimX: {
@@ -138,23 +169,26 @@ int SYCLBackendAPI::get_device_property(DeviceProperty device_property,
       break;
     }
     case DeviceProperty::MaxSharedMemoryPerBlock: {
-      rv =
-          this->devices[index].get_info<::sycl::info::device::local_mem_size>();
+      rv = static_cast<int>(
+          this->devices_[index].get_info<::sycl::info::device::local_mem_size>());
       break;
     }
     case DeviceProperty::MaxThreadsPerBlock: {
-      rv = this->devices[index]
-               .get_info<::sycl::info::device::max_work_group_size>();
+      rv = static_cast<int>(
+          this->devices_[index]
+              .get_info<::sycl::info::device::max_work_group_size>());
       break;
     }
     case DeviceProperty::MaxThreadsPerSM: {
-      rv = this->devices[index]
-               .get_info<::sycl::info::device::max_work_group_size>();
+      rv = static_cast<int>(
+          this->devices_[index]
+              .get_info<::sycl::info::device::max_work_group_size>());
       break;
     }
     case DeviceProperty::MultiProcessorCount: {
-      rv = this->devices[index]
-               .get_info<::sycl::info::device::max_compute_units>();
+      rv = static_cast<int>(
+          this->devices_[index]
+              .get_info<::sycl::info::device::max_compute_units>());
       break;
     }
     case DeviceProperty::MaxBlocksPerSM: {
@@ -164,10 +198,11 @@ int SYCLBackendAPI::get_device_property(DeviceProperty device_property,
     }
     case DeviceProperty::WarpSize: {
       std::vector<size_t> sub_group_sizes =
-          this->devices[index]
+          this->devices_[index]
               .get_info<::sycl::info::device::sub_group_sizes>();
       size_t max_sub_group_size =
-          *max_element(std::begin(sub_group_sizes), std::end(sub_group_sizes));
+          *std::max_element(std::begin(sub_group_sizes),
+                            std::end(sub_group_sizes));
       rv = static_cast<int>(max_sub_group_size);
       break;
     }
@@ -180,10 +215,12 @@ int SYCLBackendAPI::get_device_property(DeviceProperty device_property,
 
 void* SYCLBackendAPI::malloc(size_t numBytes) {
   VLOG(3) << "sycl malloc";
+
+  auto* Q = get_now_queue(nullptr);
   void* dev_mem = nullptr;
-  SYCL_CALL(dev_mem = ::sycl::malloc_device(numBytes,
-                                            this->devices[now_device_id],
-                                            *this->contexts[now_device_id]));
+
+  SYCL_CALL(dev_mem = ::sycl::malloc_device(numBytes, *Q));
+
   PADDLE_ENFORCE_NE(dev_mem,
                     nullptr,
                     ::common::errors::InvalidArgument(
@@ -193,13 +230,14 @@ void* SYCLBackendAPI::malloc(size_t numBytes) {
 
 void SYCLBackendAPI::free(void* data) {
   VLOG(3) << "sycl free";
-  SYCL_CALL(::sycl::free(data, *this->contexts[now_device_id]));
+  auto* Q = get_now_queue(nullptr);
+  SYCL_CALL(::sycl::free(data, *Q));
 }
 
 void SYCLBackendAPI::memset(void* data, int value, size_t numBytes) {
   VLOG(3) << "sycl memset";
-  SYCL_CALL(
-      this->queues[now_device_id][0]->memset(data, value, numBytes).wait());
+  auto* Q = get_now_queue(nullptr);
+  SYCL_CALL(Q->memset(data, value, numBytes).wait());
 }
 
 void SYCLBackendAPI::memcpy(void* dest,
@@ -207,75 +245,84 @@ void SYCLBackendAPI::memcpy(void* dest,
                             size_t numBytes,
                             MemcpyType type) {
   VLOG(3) << "sycl memcpy";
-  ::sycl::queue* Q;
-  switch (type) {
-    case MemcpyType::HostToHost:
-      Q = this->queues[now_device_id][0];
-      break;
-    case MemcpyType::HostToDevice:
-      Q = this->queues[now_device_id][0];
-      break;
-    case MemcpyType::DeviceToHost:
-      Q = this->queues[now_device_id][0];
-      break;
-    case MemcpyType::DeviceToDevice:
-      Q = this->queues[now_device_id][0];
-      break;
-  }
+  (void)type;
+
+  auto* Q = get_now_queue(nullptr);
   SYCL_CALL(Q->memcpy(dest, src, numBytes).wait());
 }
 
 void SYCLBackendAPI::device_sync() {
   VLOG(3) << "sycl device sync";
-  for (auto queues_in_one_device : this->queues) {
-    for (auto queue : queues_in_one_device) {
-      SYCL_CALL(queue->wait_and_throw());
+  for (auto& queues_in_one_device : this->queues_) {
+    for (auto& queue : queues_in_one_device) {
+      SYCL_CALL(queue.wait_and_throw());
     }
   }
 }
 
 void SYCLBackendAPI::stream_sync(void* stream) {
   VLOG(3) << "sycl stream sync";
+
+  if (stream == nullptr) {
+    SYCL_CALL(get_now_queue(nullptr)->wait_and_throw());
+    return;
+  }
+
   SYCL_CALL(static_cast<::sycl::queue*>(stream)->wait_and_throw());
 }
 
 ::sycl::queue* SYCLBackendAPI::get_now_queue(void* raw_stream) {
-  if (this->queues[now_device_id].size() == 0) {
-    int current_device_id;
-    hipGetDevice(&current_device_id);
-    hipSetDevice(current_device_id);
-    hipDeviceGet(&device_, current_device_id);
-    hipCtxGetCurrent(&context_);
-    hipDevicePrimaryCtxRetain(&context_, device_);
-
-    ::sycl::backend_input_t<::sycl::backend::ext_oneapi_hip, ::sycl::context>
-        InteropContextInput{context_};
-    ::sycl::context InteropContext =
-        ::sycl::make_context<::sycl::backend::ext_oneapi_hip>(
-            InteropContextInput);
-
-    hipStream_t hipStream = static_cast<hipStream_t>(raw_stream);
-    auto Q =
-        new ::sycl::queue(::sycl::make_queue<::sycl::backend::ext_oneapi_hip>(
-            hipStream, InteropContext));
-    this->queues[now_device_id].push_back(Q);
+  if (!initialized_) {
+    Init(common::UnknownArch{});
   }
-  return this->queues[now_device_id][0];
+
+  // In the SYCL backend, the stream object is represented by sycl::queue*.
+  // Do not construct a SYCL queue from hipStream_t here.  The HIP backend
+  // native stream should be obtained inside a host_task through
+  // interop_handle::get_native_queue<backend::ext_oneapi_hip>(), as in the
+  // verified HIP interop test.
+  //if (raw_stream != nullptr) {
+  //  return static_cast<::sycl::queue*>(raw_stream);
+  //}
+
+  PADDLE_ENFORCE_GT(
+      this->devices_.size(),
+      static_cast<size_t>(0),
+      ::common::errors::InvalidArgument("No valid SYCL gpu device found."));
+
+  if (this->now_device_id_ < 0 ||
+      this->now_device_id_ >= static_cast<int>(this->devices_.size())) {
+    this->now_device_id_ = 0;
+  }
+
+  if (this->queues_[now_device_id_].empty()) {
+    this->contexts_[now_device_id_] =
+        ::sycl::context(this->devices_[now_device_id_], MakeAsyncHandler());
+
+    ::sycl::property_list q_prop{::sycl::property::queue::in_order()};
+    this->queues_[now_device_id_].emplace_back(
+        this->contexts_[now_device_id_],
+        this->devices_[now_device_id_],
+        q_prop);
+  }
+
+  return &this->queues_[now_device_id_][0];
 }
 
 std::string SYCLBackendAPI::GetGpuVersion() {
-  ::sycl::device device = this->devices[now_device_id];
+  ::sycl::device device = this->devices_[now_device_id_];
   ::sycl::backend backend = device.get_backend();
+
   switch (backend) {
-    case ::sycl::backend::cuda: {
+    case ::sycl::backend::ext_oneapi_cuda: {
       std::string gpu_version = "sm_";
       std::string version_with_point =
           device.get_info<::sycl::info::device::driver_version>();
       size_t pos = version_with_point.find(".");
       if (pos != std::string::npos) {
-        gpu_version +=
-            version_with_point.substr(0, pos) +
-            version_with_point.substr(pos + 1, version_with_point.size());
+        gpu_version += version_with_point.substr(0, pos) +
+                       version_with_point.substr(pos + 1,
+                                                 version_with_point.size());
       }
       return gpu_version;
     }
@@ -294,21 +341,22 @@ std::string SYCLBackendAPI::GetGpuVersion() {
 
 std::array<int, 3> SYCLBackendAPI::get_max_block_dims(
     std::optional<int> device_id) {
-  std::array<int, 3> kMaxBlockDims;
-  int index = device_id.value_or(this->now_device_id);
-  ::sycl::id<3> max_work_item_sizes =
-      this->devices[index]
-          .get_info<::sycl::info::device::max_work_item_sizes>();
-  kMaxBlockDims = std::array<int, 3>{
-      max_work_item_sizes[2], max_work_item_sizes[1], max_work_item_sizes[0]};
-  return kMaxBlockDims;
+  int index = device_id.value_or(this->now_device_id_);
+
+  //::sycl::id<3> max_work_item_sizes =
+  //    this->devices_[index]
+  //        .get_info<::sycl::info::device::max_work_item_sizes<3>>();
+
+  return std::array<int, 3>{
+      static_cast<int>(2048),
+      static_cast<int>(2048),
+      static_cast<int>(2048)};
 }
 
 std::array<int, 3> SYCLBackendAPI::get_max_grid_dims(
     std::optional<int> device_id) {
-  std::array<int, 3> kMaxGridDims;
-  kMaxGridDims = std::array<int, 3>{2147483647, 2147483647, 2147483647};
-  return kMaxGridDims;
+  (void)device_id;
+  return std::array<int, 3>{2147483647, 2147483647, 2147483647};
 }
 
 }  // namespace sycl

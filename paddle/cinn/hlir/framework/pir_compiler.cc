@@ -300,6 +300,7 @@ std::vector<pir::CINNKernelInfo> PirCompiler::Build(
       group_compilation_contexts[index].GetGroup()->symbol_args_map().size();
     };
     // Parallel compilation
+    std::cout<<"=============== Begin Parallel compilation ========="<<std::endl;
     utils::parallel_run(worker_fn,
                         utils::SequenceDispatcher(0, task_size),
                         /*thread_num=*/thread_size);

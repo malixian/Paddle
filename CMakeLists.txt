@@ -48,7 +48,7 @@ project(paddle CXX C)
 find_package(CUDA QUIET)
 find_package(MKL CONFIG QUIET)
 option(WITH_ONEMKL "Compile PaddlePaddle with oneMKL" OFF)
-option(WITH_GPU "Compile PaddlePaddle with NVIDIA GPU" ${CUDA_FOUND})
+option(WITH_GPU "Compile PaddlePaddle with NVIDIA GPU" OFF)
 option(WITH_MPI "Compile PaddlePaddle with MPI" OFF)
 option(WITH_TENSORRT "Compile PaddlePaddle with NVIDIA TensorRT" OFF)
 option(WITH_OPENVINO "Compile PaddlePaddle with Intel OpenVINO" OFF)
@@ -327,12 +327,12 @@ option(
   "Choose the type of sanitizer, options are: Address, Leak, Memory, Thread, Undefined"
   OFF)
 option(WITH_CINN "Compile PaddlePaddle with CINN" OFF)
-option(WITH_NCCL "Compile PaddlePaddle with NCCL support" ON)
+option(WITH_NCCL "Compile PaddlePaddle with NCCL support" OFF)
 option(WITH_FLAGCX "Compile PaddlePaddle with FLAGCX support" OFF)
 option(KERNEL_WITH_FLAGCX
        "Use FlagCX as communication backend in kernels involving communication"
        OFF)
-option(WITH_RCCL "Compile PaddlePaddle with RCCL support" ON)
+option(WITH_RCCL "Compile PaddlePaddle with RCCL support" OFF)
 option(WITH_XPU_BKCL "Compile PaddlePaddle with BAIDU KUNLUN XPU BKCL" OFF)
 option(WITH_CRYPTO "Compile PaddlePaddle with crypto support" ON)
 option(WITH_ARM "Compile PaddlePaddle with arm support" OFF)
@@ -550,6 +550,8 @@ if(WITH_BRPC_RDMA)
   endif()
 endif()
 
+message(STATUS "WITH_GPU = ${WITH_GPU}")
+
 if(WITH_GPU)
   include(cuda)
   # lite subgraph compilation depends on CUDNN_ROOT,
@@ -565,7 +567,7 @@ endif()
 if(WITH_ROCM)
   include(hip)
   include(miopen) # set miopen libraries, must before configure
-  include(cupti)
+  #include(cupti)
 endif()
 
 if(WITH_XPU_KP)

@@ -16,6 +16,9 @@
 #include <sys/stat.h>  // for mkdir
 #include <fstream>
 #include "paddle/cinn/runtime/sycl/sycl_backend_api.h"
+#include <iostream>
+#include <cstdlib>
+#include <sys/wait.h>
 using cinn::runtime::sycl::SYCLBackendAPI;
 
 namespace cinn {
@@ -73,15 +76,57 @@ std::string Compiler::CompileToSo(const std::string& source_code,
              source_file_path + " -o " + shared_lib_path;
   // compile
   VLOG(2) << "compile command: " << command;
+  std::cout << "compile command: " << command << std::endl;
+  /*
   PADDLE_ENFORCE_EQ(system(command.c_str()),
                     0,
                     ::common::errors::External(
                         "Following compile command failed:\n%s", command));
-  return shared_lib_path;
+  std::cout << "build success" << std::endl;
+  */
+
+
+  int ret = system(command.c_str());
+
+  if (ret == -1) {
+    PADDLE_THROW(::common::errors::External(
+        "Failed to call system() for command:\n%s", command));
+  }
+
+  if (WIFEXITED(ret)) {
+    int exit_code = WEXITSTATUS(ret);
+    std::cout << "compile exit code = " << exit_code << std::endl;
+
+    PADDLE_ENFORCE_EQ(
+        exit_code,
+        0,
+        ::common::errors::External(
+          "Following compile command failed with exit code %d:\n%s",
+          exit_code,
+          command));
+
+  } else if (WIFSIGNALED(ret)) {
+    int sig = WTERMSIG(ret);
+    std::cout << "compile killed by signal = " << sig << std::endl;
+
+    PADDLE_THROW(::common::errors::External(
+      "Following compile command was killed by signal %d:\n%s",
+      sig,
+      command));
+
+    } else {
+      PADDLE_THROW(::common::errors::External(
+        "Following compile command failed with unknown status %d:\n%s",
+        ret,
+        command));
+    }
+
+    return shared_lib_path;
 }
 
 void Compiler::SetDeviceArchOptions(const Arch gpu_type) {
-  std::string gpu_version = SYCLBackendAPI::Global()->GetGpuVersion();
+  //std::string gpu_version = SYCLBackendAPI::Global()->GetGpuVersion();
+  std::string gpu_version = "gfx90a";
   gpu_type.Match(
       [&](common::HygonDCUArchSYCL) {
         device_arch_options = "-fsycl";

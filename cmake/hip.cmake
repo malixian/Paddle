@@ -95,8 +95,9 @@ message(STATUS "PADDLE_ROCM_VERSION: ${PADDLE_ROCM_VERSION}")
 
 # Keep legacy DCU defaults narrow; ROCm 7 adds newer CDNA targets.
 if(PADDLE_ROCM_VERSION GREATER_EQUAL 70000000)
-  set(PADDLE_DEFAULT_AMDGPU_TARGETS
-      "gfx906;gfx908;gfx90a;gfx926;gfx928;gfx936;gfx942;gfx950")
+  #set(PADDLE_DEFAULT_AMDGPU_TARGETS
+       #"gfx906;gfx908;gfx90a;gfx926;gfx928;gfx936;gfx942;gfx950")
+   set(PADDLE_DEFAULT_AMDGPU_TARGETS "gfx90a:sramecc-:xnack-")
 else()
   set(PADDLE_DEFAULT_AMDGPU_TARGETS "gfx906;gfx926;gfx928;gfx936")
 endif()
@@ -222,13 +223,18 @@ endforeach()
 
 if(HIP_COMPILER STREQUAL clang)
   set(hip_library_name amdhip64)
+  set(hiprtc_library_name hiprtc)
 else()
   set(hip_library_name hip_hcc)
 endif()
 message(STATUS "HIP library name: ${hip_library_name}")
+message(STATUS "HIPRTC library name: ${hiprtc_library_name}")
 
 # set HIP link libs
-find_library(ROCM_HIPRTC_LIB ${hip_library_name} HINTS ${HIP_PATH}/lib)
+find_library(ROCM_LIB NAMES ${hip_library_name} HINTS ${HIP_PATH}/lib)
+message(STATUS "ROCM_LIB: ${ROCM_LIB}")
+
+find_library(ROCM_HIPRTC_LIB NAMES ${hiprtc_library_name} HINTS ${HIP_PATH}/lib)
 message(STATUS "ROCM_HIPRTC_LIB: ${ROCM_HIPRTC_LIB}")
 
 if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/thrust.cmake")

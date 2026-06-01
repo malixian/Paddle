@@ -147,6 +147,7 @@ if(WITH_ROCM)
   if(NOT WITH_SYCL)
     add_definitions(-DCINN_WITH_HIP)
   endif()
+  link_libraries(${ROCM_LIB})
   link_libraries(${ROCM_HIPRTC_LIB})
 
   message(

@@ -824,7 +824,7 @@ void* GetNVRTCDsoHandle() {
 #elif defined(PADDLE_WITH_CUSTOM_DEVICE)
   return GetDsoHandleFromSearchPath(FLAGS_cuda_dir, RTC_LIB_NAME);
 #elif defined(PADDLE_WITH_HIP)
-  return GetDsoHandleFromSearchPath(FLAGS_rocm_dir, "libamdhip64.so", false);
+  return GetDsoHandleFromSearchPath(FLAGS_rocm_dir, "libhiprtc.so", false);
 #else
   return GetDsoHandleFromSearchPath(FLAGS_cuda_dir, "libnvrtc.so", false);
 #endif

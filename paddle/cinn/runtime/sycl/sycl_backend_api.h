@@ -16,21 +16,31 @@
 
 #include <sycl/sycl.hpp>
 
-#include <hip/hip_runtime.h>
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <system_error>
 #include <vector>
+
 #include "paddle/cinn/common/macros.h"
 #include "paddle/cinn/common/target.h"
 #include "paddle/cinn/runtime/backend_api.h"
 #include "paddle/common/enforce.h"
+
 using cinn::common::Arch;
 
 namespace cinn {
 namespace runtime {
 namespace sycl {
 
-inline const char* SYCLGetErrorString(std::error_code error_code) {
-  ::sycl::errc error_code_value = static_cast<::sycl::errc>(error_code.value());
-  switch (error_code_value) {
+inline const char* SYCLGetErrorString(const std::error_code& error_code) {
+  if (error_code.category() != ::sycl::sycl_category()) {
+    return "NON-SYCL ERROR";
+  }
+
+  switch (static_cast<::sycl::errc>(error_code.value())) {
     case ::sycl::errc::runtime:
       return "RUNTIME ERROR";
     case ::sycl::errc::kernel:
@@ -38,7 +48,7 @@ inline const char* SYCLGetErrorString(std::error_code error_code) {
     case ::sycl::errc::accessor:
       return "ACCESSOR ERROR";
     case ::sycl::errc::nd_range:
-      return "NDRANGE ERROR";
+      return "ND_RANGE ERROR";
     case ::sycl::errc::event:
       return "EVENT ERROR";
     case ::sycl::errc::kernel_argument:
@@ -48,7 +58,7 @@ inline const char* SYCLGetErrorString(std::error_code error_code) {
     case ::sycl::errc::invalid:
       return "INVALID ERROR";
     case ::sycl::errc::memory_allocation:
-      return "MEMORY ALLOCATION";
+      return "MEMORY ALLOCATION ERROR";
     case ::sycl::errc::platform:
       return "PLATFORM ERROR";
     case ::sycl::errc::profiling:
@@ -56,39 +66,46 @@ inline const char* SYCLGetErrorString(std::error_code error_code) {
     case ::sycl::errc::feature_not_supported:
       return "FEATURE NOT SUPPORTED";
     case ::sycl::errc::kernel_not_supported:
-      return "kERNEL NOT SUPPORTED";
+      return "KERNEL NOT SUPPORTED";
     case ::sycl::errc::backend_mismatch:
       return "BACKEND MISMATCH";
     default:
-      return "";
+      return "UNKNOWN SYCL ERROR";
   }
 }
 
 /*!
- * \brief Protected SYCL call
- * \param func Expression to call.
+ * \brief Protected SYCL call.
+ *
+ * SYCL 2020 exposes exception details through sycl::exception::code();
+ * get_cl_code() was a SYCL 1.2.1 / DPC++ compatibility API and is not used
+ * here so this header can be compiled as a SYCL 2020 implementation.
  */
-#define SYCL_CALL(func)                                                 \
-  {                                                                     \
-    try {                                                               \
-      func;                                                             \
-    } catch (const ::sycl::exception& e) {                              \
-      PADDLE_THROW(::common::errors::Fatal(                             \
-          "SYCL Driver Error in Paddle CINN: %s failed with error: %s", \
-          e.get_cl_code(),                                              \
-          e.what()));                                                   \
-    }                                                                   \
-  }
+#define SYCL_CALL(func)                                                   \
+  do {                                                                    \
+    try {                                                                 \
+      func;                                                               \
+    } catch (const ::sycl::exception& e) {                                \
+      PADDLE_THROW(::common::errors::Fatal(                               \
+          "SYCL Driver Error in Paddle CINN: failed with error code %d "  \
+          "(%s): %s",                                                    \
+          e.code().value(),                                               \
+          ::cinn::runtime::sycl::SYCLGetErrorString(e.code()),            \
+          e.what()));                                                     \
+    }                                                                     \
+  } while (0)
 
 class SYCLBackendAPI final : public BackendAPI {
  public:
-  SYCLBackendAPI() {}
-  ~SYCLBackendAPI() {}
+  SYCLBackendAPI() = default;
+  ~SYCLBackendAPI() override = default;
+
   static SYCLBackendAPI* Global();
+
   /*!
-   * \brief
-   * \param arch
-   * \return return device0's_arch : arch if arch is Unk.
+   * \brief Initialize SYCL devices, contexts and queues.
+   * \param arch CINN target architecture. The current implementation keeps the
+   *             BackendAPI signature and selects SYCL GPU devices first.
    */
   void Init(Arch arch);
   void set_device(int device_id) final;
@@ -96,7 +113,6 @@ class SYCLBackendAPI final : public BackendAPI {
   int get_device_property(DeviceProperty device_property,
                           std::optional<int> device_id = std::nullopt) final;
   void* malloc(size_t numBytes) final;
-  // void set_active_devices(std::vector<int> device_ids) final;
   void free(void* data) final;
   void memset(void* data, int value, size_t numBytes) final;
   void memcpy(void* dest,
@@ -105,7 +121,7 @@ class SYCLBackendAPI final : public BackendAPI {
               MemcpyType type) final;
   void device_sync() final;
   void stream_sync(void* stream) final;
-  ::sycl::queue* get_now_queue(void* stream);
+  ::sycl::queue* get_now_queue(void* stream = nullptr);
   std::string GetGpuVersion();
   std::array<int, 3> get_max_grid_dims(
       std::optional<int> device_id = std::nullopt) final;
@@ -113,19 +129,20 @@ class SYCLBackendAPI final : public BackendAPI {
       std::optional<int> device_id = std::nullopt) final;
 
  private:
-  // all devices
-  std::vector<::sycl::device> devices;
-  // all contexts
-  std::vector<::sycl::context*> contexts;
-  // all queues in all devices
-  std::vector<std::vector<::sycl::queue*>> queues;
-  // now_device_id, change by set_device()
-  int now_device_id = 0;
-  // whether the BackendAPI is initialized.
+  void CheckInitialized() const;
+  int NormalizeDeviceId(std::optional<int> device_id) const;
+
+  // SYCL 2020 objects are value types. No backend-native HIP handles are stored
+  // here, so the API is portable across SYCL backends.
+  std::vector<::sycl::device> devices_;
+  std::vector<::sycl::context> contexts_;
+  std::vector<std::vector<::sycl::queue>> queues_;
+
+  int now_device_id_{0};
   bool initialized_{false};
-  hipDevice_t device_;
-  hipCtx_t context_;
 };
+
 }  // namespace sycl
 }  // namespace runtime
 }  // namespace cinn
+

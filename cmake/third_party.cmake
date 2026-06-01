@@ -50,6 +50,8 @@ if(NOT WITH_SETUP_INSTALL)
     message(FATAL_ERROR "Failed to sync submodule, please check your network !")
   endif()
 
+  message(STATUS "paddle source dir: ${PADDLE_SOURCE_DIR}")
+
   if(WITH_OPENVINO)
     execute_process(
       COMMAND git submodule update --init --depth=1 third_party/openvino
@@ -95,12 +97,47 @@ if(NOT WITH_SETUP_INSTALL)
       RESULT_VARIABLE result_var)
     string(REGEX MATCHALL "third_party/[^ )\n]+" submodule_paths
                  "${submodule_list}")
+    message(STATUS "submodule_list: ${submodule_list}")
+
+    # Submodules that are only needed for CUDA/NVIDIA build.
+    # Skip them when building with ROCm.
+    set(ROCM_SKIP_SUBMODULES
+      "third_party/cutlass"
+      "third_party/cub"
+      "third_party/cccl"
+      "third_party/nccl"
+    )
+
+    if(NOT WITH_FLASHATTN)
+      list(APPEND ROCM_SKIP_SUBMODULES "third_party/flashattn")
+    endif()
+
     foreach(submodule IN LISTS submodule_paths)
-      if(NOT submodule STREQUAL "third_party/openvino")
+      set(skip_submodule OFF)
+
+      # Always skip openvino, same as original logic.
+      if(submodule STREQUAL "third_party/openvino")
+        set(skip_submodule ON)
+      endif()
+
+      # ROCm build should not clone CUDA/NVIDIA-only dependencies.
+      if(WITH_ROCM AND submodule IN_LIST ROCM_SKIP_SUBMODULES)
+        set(skip_submodule ON)
+      endif()
+
+      if(skip_submodule)
+        message(STATUS "Skip submodule: ${submodule}, WITH_ROCM=${WITH_ROCM}")
+      else()
+        message(STATUS "Update submodule: ${submodule}")
+
         execute_process(
-          COMMAND git submodule update --init --recursive ${submodule}
+          COMMAND git submodule update --init --recursive --progress ${submodule}
           WORKING_DIRECTORY ${PADDLE_SOURCE_DIR}
           RESULT_VARIABLE result_var)
+
+        if(NOT result_var EQUAL 0)
+          message(FATAL_ERROR "Failed to update submodule: ${submodule}")
+        endif()
       endif()
     endforeach()
   endif()
@@ -474,6 +511,8 @@ if(WITH_ONNXRUNTIME)
   list(APPEND third_party_deps extern_onnxruntime extern_paddle2onnx)
 endif()
 
+message(STATUS "third party with_gpu:${WITH_GPU}")
+
 if(WITH_GPU)
   if(${CMAKE_CUDA_COMPILER_VERSION} LESS 11.0
      OR (${CMAKE_CUDA_COMPILER_VERSION} GREATER_EQUAL 11.7
@@ -594,7 +633,7 @@ if(WITH_NVSHMEM)
   list(APPEND third_party_deps extern_nvshmem)
 endif()
 
-if(WITH_ROCM)
+if(WITH_ROCM AND WITH_FLASHATTN)
   include(external/flashattn)
   list(APPEND third_party_deps extern_flashattn)
   set(WITH_FLASHATTN ON)
